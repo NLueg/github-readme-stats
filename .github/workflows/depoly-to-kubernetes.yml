@@ -1,0 +1,45 @@
+name: Deploy to Kubernetes
+
+on:
+  push:
+    branches: [master]
+
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.PRIVATE_PACKAGE_TOKEN }}
+
+      - name: Generate version string
+        id: version
+        run: |
+          DATE=$(date +'%Y-%m-%d')
+          RUN_INDEX=$((GITHUB_RUN_NUMBER - 1))
+          VERSION="$DATE-$RUN_INDEX"
+          echo "Generated version is $VERSION"
+          echo "::set-output name=version::$VERSION"
+
+      - name: Build the Docker image
+        run: |
+          docker build . --file Dockerfile --tag ghcr.io/nlueg/github-readme-stats:${{ steps.version.outputs.version }}
+          docker push ghcr.io/nlueg/github-readme-stats:${{ steps.version.outputs.version }}
+
+      - name: Deploy chart
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          event-type: deploy
+          repository: NLueg/server-infrastructure
+          token: ${{ secrets.PRIVATE_PACKAGE_TOKEN }}
+          client-payload: '{"chart": "github-readme-stats", "version": "${{ steps.version.outputs.version }}"}'
